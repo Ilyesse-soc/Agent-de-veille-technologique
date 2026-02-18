@@ -61,19 +61,3 @@ C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy Bypas
 .\.venv\Scripts\Activate.ps1
 python tech_watch_agent\main.py
 ```
-
-## Publier sur GitHub (pousser le projet dans ton repo)
-
-Dans PowerShell, depuis le dossier du projet `agent-veille`:
-
-```powershell
-git init
-git add .
-git commit -m "init"
-git branch -M main
-git remote add origin https://github.com/Ilyesse-soc/Agent-de-veille-technologique.git
-git push -u origin main
-```
-
-Si `git push` te demande une authentification:
-- utilise GitHub CLI (`gh auth login`) ou un **Personal Access Token** (PAT) si nécessaire.

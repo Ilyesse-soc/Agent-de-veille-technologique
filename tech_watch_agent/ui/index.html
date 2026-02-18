@@ -422,7 +422,7 @@
 
       <div class="actions">
         <button id="runBtn" class="btn primary">Générer la veille</button>
-        <button id="openBtn" class="btn secondary">Ouvrir veille.md</button>
+        <button id="openBtn" class="btn secondary">Télécharger PDF</button>
       </div>
       <div class="runline" id="runLine"></div>
       <div class="alert" id="successAlert">Veille générée et sauvegardée.</div>
@@ -625,8 +625,8 @@
       });
 
       const text = category === 'Tous'
-        ? "Voici l’essentiel, expliqué simplement, sur l’ensemble des thèmes."
-        : `Voici l’essentiel, expliqué simplement, pour le thème sélectionné.`;
+        ? "Voici l’essentiel, expliqué simplement, sur l’ensemble des thèmes (en français)."
+        : "Voici l’essentiel, expliqué simplement, pour le thème sélectionné (en français).";
 
       return { title: category, text, bullets, topics, advice: adviceFor(category) };
     }
@@ -664,7 +664,6 @@
           ${topicsHtml ? `<ul class="topics" aria-label="Sujets fréquents">${topicsHtml}</ul>` : ''}
           <div class="summary-meta">
             <div>Conseil: ${escapeHtml(sum.advice)}</div>
-            ${payload?.veille_md_path ? `<div>Fichier: ${escapeHtml(payload.veille_md_path)}</div>` : ''}
           </div>
         </section>
       `);
@@ -717,9 +716,23 @@
 
     openBtn.addEventListener('click', async () => {
       try{
-        await fetch('/api/open');
+        const res = await fetch('/api/pdf');
+        if(!res.ok){
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const today = new Date().toISOString().slice(0,10);
+        a.href = url;
+        a.download = `veille-interface-${today}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       } catch(e){
-        // silent
+        // Fallback sans dépendance: impression (l’utilisateur choisit « Enregistrer en PDF »)
+        try { window.print(); } catch { /* silent */ }
       }
     });
 

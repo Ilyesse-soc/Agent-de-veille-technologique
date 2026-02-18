@@ -11,6 +11,12 @@ tech_watch_agent/output/
 
 # Local DB
 tech_watch_agent/storage/history.db
+tech_watch_agent/storage/history.db-wal
+tech_watch_agent/storage/history.db-shm
+
+# (général) fichiers SQLite temporaires
+*.db-wal
+*.db-shm
 
 # OS
 .DS_Store

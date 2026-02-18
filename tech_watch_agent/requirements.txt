@@ -6,5 +6,8 @@ feedparser>=6.0
 fastapi>=0.110
 uvicorn[standard]>=0.27
 
+# Export PDF de l'interface
+playwright>=1.42
+
 # Optionnel (UI)
 # streamlit>=1.32

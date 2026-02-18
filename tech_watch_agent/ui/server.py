@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 
 # PYTHONPATH: rendre importable `tech_watch_agent/` et `agents/`
@@ -184,7 +184,8 @@ def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
             "elapsed_s": elapsed,
         },
         "sources": [asdict(s) for s in statuses],
-        "veille_md_path": str(OUT_MD),
+        # Ne pas exposer de chemin local (OPSEC). On garde un identifiant neutre.
+        "veille_md": "veille.md",
         "articles": [
             {
                 "title": a.title,
@@ -218,6 +219,50 @@ def api_open() -> JSONResponse:
         return JSONResponse({"ok": False, "error": "veille.md introuvable"}, status_code=404)
     try:
         os.startfile(str(OUT_MD))  # Windows
-        return JSONResponse({"ok": True, "path": str(OUT_MD)})
+        return JSONResponse({"ok": True})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.get("/api/pdf")
+def api_pdf(request: Request) -> Response:
+    """Génère un PDF de l’interface et le renvoie en téléchargement.
+
+    Implémentation: rendu headless Chromium via Playwright.
+    Fallback côté client possible (window.print) si Playwright n’est pas installé.
+    """
+
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Génération PDF indisponible (Playwright non installé).",
+                "details": str(exc),
+            },
+            status_code=501,
+        )
+
+    base = str(request.base_url).rstrip("/")
+    target_url = f"{base}/"
+
+    pdf_bytes: bytes
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": 1200, "height": 900})
+        page.goto(target_url, wait_until="networkidle", timeout=20_000)
+        pdf_bytes = page.pdf(
+            format="A4",
+            print_background=True,
+            margin={"top": "12mm", "bottom": "12mm", "left": "12mm", "right": "12mm"},
+        )
+        browser.close()
+
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    filename = f"veille-interface-{stamp}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

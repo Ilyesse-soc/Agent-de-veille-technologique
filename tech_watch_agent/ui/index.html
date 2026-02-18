@@ -234,6 +234,76 @@
       margin-bottom:-11px;
     }
 
+    /* Summary box */
+    .summary-box{
+      margin-top:18px;
+      padding:18px 18px 16px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+      animation-delay:180ms;
+    }
+    .summary-top{
+      display:flex;
+      align-items:baseline;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .summary-kicker{
+      color:var(--muted);
+      font-size:9px;
+      text-transform:uppercase;
+      letter-spacing:0.15em;
+    }
+    .summary-title{
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+      letter-spacing:-0.02em;
+      font-size:18px;
+      margin:0;
+    }
+    .summary-title .accent{color:var(--accent)}
+    .summary-text{
+      color:var(--text);
+      font-size:12px;
+      line-height:1.55;
+      margin:0 0 10px;
+    }
+    .summary-meta{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:10px;
+      color:var(--muted);
+      font-size:10px;
+    }
+    .topics{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin:8px 0 0;
+      padding:0;
+      list-style:none;
+    }
+    .topic{
+      border:1px solid var(--border);
+      padding:6px 8px;
+      border-radius:2px;
+      font-size:10px;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:0.12em;
+    }
+    .bullets{
+      margin:0;
+      padding-left:16px;
+      color:var(--text);
+      font-size:12px;
+      line-height:1.5;
+    }
+
     /* Articles */
     .section{
       margin-top:22px;
@@ -478,6 +548,89 @@
       return groups;
     }
 
+    const STOPWORDS = new Set([
+      // FR
+      'avec','pour','dans','sur','chez','vous','nous','ils','elles','elle','lui','leurs','notre','votre','leurs',
+      'mais','donc','or','ni','car','que','qui','quoi','dont','où','quand','comment','plus','moins','très','tres',
+      'tout','tous','toute','toutes','afin','comme','aussi','ainsi','être','etre','été','ete','avoir','fait','faits',
+      'selon','depuis','entre','vers','sans','sous','cette','ceci','cela','celui','celle','celles','ceux',
+      'les','des','une','un','du','de','la','le','et','en','au','aux','par','se','sa','son','ses',
+      // EN/common tech glue
+      'the','and','for','with','from','into','over','under','this','that','these','those','your','our','their',
+      'new','update','release','announces','announced','blog','report','security','cloud','data','ai'
+    ]);
+
+    function tokenize(text){
+      return String(text || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9àâçéèêëîïôûùüÿñæœ\s-]/g, ' ')
+        .split(/\s+/)
+        .map(w => w.trim())
+        .filter(Boolean);
+    }
+
+    function topTopics(articles, maxTopics=6){
+      const freq = new Map();
+      (articles||[]).forEach(a => {
+        const words = tokenize(`${a.title || ''} ${a.content || ''}`);
+        words.forEach(w => {
+          if (w.length < 4) return;
+          if (STOPWORDS.has(w)) return;
+          if (/^\d+$/.test(w)) return;
+          // normalisation très légère
+          const key = w.replace(/^-+|-+$/g,'');
+          if (!key || key.length < 4) return;
+          freq.set(key, (freq.get(key) || 0) + 1);
+        });
+      });
+      return Array.from(freq.entries())
+        .sort((a,b) => b[1]-a[1])
+        .slice(0, maxTopics)
+        .map(([k]) => k);
+    }
+
+    function adviceFor(category){
+      if(category === 'Cybersécurité'){
+        return "Si tu reconnais un produit/outil cité, applique les mises à jour et vérifie les alertes officielles.";
+      }
+      if(category === 'Intelligence Artificielle'){
+        return "Garde une approche simple: teste sur un petit cas réel, mesure la qualité, puis élargis.";
+      }
+      if(category === 'Cloud / DevOps'){
+        return "Regarde l’impact sur coûts, sécurité et exploitation avant d’activer une nouveauté en prod.";
+      }
+      if(category === 'Big Data'){
+        return "Priorise ce qui change la perf/coût et ce qui simplifie l’exploitation (monitoring, fiabilité).";
+      }
+      return "Lis d’abord les sources, puis applique ce qui est pertinent à ton contexte.";
+    }
+
+    function computeSimpleSummary(category, articles){
+      const items = (articles||[]).slice().sort((a,b)=> (b.published_at||'').localeCompare(a.published_at||''));
+      if(items.length === 0){
+        return {
+          title: category,
+          text: "Aucun article sélectionné pour ce thème sur les 7 derniers jours.",
+          bullets: [],
+          topics: [],
+          advice: adviceFor(category)
+        };
+      }
+
+      const topics = topTopics(items, 6);
+      const top = items.slice(0, 4);
+      const bullets = top.map(a => {
+        const s = a.source ? `(${a.source})` : '';
+        return `${a.title} ${s}`.trim();
+      });
+
+      const text = category === 'Tous'
+        ? "Voici l’essentiel, expliqué simplement, sur l’ensemble des thèmes."
+        : `Voici l’essentiel, expliqué simplement, pour le thème sélectionné.`;
+
+      return { title: category, text, bullets, topics, advice: adviceFor(category) };
+    }
+
     function catDisplayName(tab){
       if(tab==='Intelligence Artificielle') return 'Intelligence Artificielle';
       return tab;
@@ -488,9 +641,33 @@
       const groups = groupByCategory(all);
 
       const orderedCats = ['Cybersécurité','Intelligence Artificielle','Cloud / DevOps','Big Data'];
-      const catsToRender = activeTab === 'Tous' ? orderedCats : [catDisplayName(activeTab)];
+      const currentCat = activeTab === 'Tous' ? 'Tous' : catDisplayName(activeTab);
+      const catsToRender = activeTab === 'Tous' ? orderedCats : [currentCat];
+
+      // Résumé (mots simples) du thème sélectionné
+      const summaryArticles = currentCat === 'Tous'
+        ? all
+        : (groups.get(currentCat) || []);
+      const sum = computeSimpleSummary(currentCat, summaryArticles);
+      const topicsHtml = (sum.topics || []).map(t => `<li class="topic">${escapeHtml(t)}</li>`).join('');
+      const bulletsHtml = (sum.bullets || []).map(b => `<li>${escapeHtml(b)}</li>`).join('');
 
       const parts = [];
+      parts.push(`
+        <section class="summary-box" aria-label="Résumé">
+          <div class="summary-top">
+            <div class="summary-kicker">Résumé (mots simples)</div>
+            <h2 class="summary-title">Thème: <span class="accent">${escapeHtml(currentCat)}</span></h2>
+          </div>
+          <p class="summary-text">${escapeHtml(sum.text)}</p>
+          ${bulletsHtml ? `<ul class="bullets">${bulletsHtml}</ul>` : ''}
+          ${topicsHtml ? `<ul class="topics" aria-label="Sujets fréquents">${topicsHtml}</ul>` : ''}
+          <div class="summary-meta">
+            <div>Conseil: ${escapeHtml(sum.advice)}</div>
+            ${payload?.veille_md_path ? `<div>Fichier: ${escapeHtml(payload.veille_md_path)}</div>` : ''}
+          </div>
+        </section>
+      `);
       catsToRender.forEach(cat => {
         const items = (groups.get(cat) || []).slice().sort((a,b)=> (b.published_at||'').localeCompare(a.published_at||''));
         const point = catPointColor(cat);

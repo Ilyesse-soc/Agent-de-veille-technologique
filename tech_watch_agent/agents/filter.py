@@ -178,3 +178,46 @@ def persist_new(db_path: str, articles: list[Article]) -> list[Article]:
 
     logger.info("Dédup SQLite: %d nouveaux", len(new_items))
     return new_items
+
+
+def load_recent_articles(db_path: str, days: int = 7) -> list[Article]:
+    """Charge les articles récents depuis SQLite.
+
+    Objectif: permettre une génération très rapide (UI) sans collecte réseau.
+    """
+
+    init_db(db_path)
+    cutoff = _utc_now() - timedelta(days=days)
+    cutoff_iso = _iso(cutoff)
+
+    items: list[Article] = []
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            SELECT uid, link, title, excerpt, source_name, category, published_at
+            FROM articles
+            WHERE published_at >= ?
+            ORDER BY published_at DESC
+            """,
+            (cutoff_iso,),
+        )
+        for uid, link, title, excerpt, source_name, category, published_at in cur.fetchall():
+            try:
+                dt = datetime.fromisoformat(str(published_at).replace("Z", "+00:00"))
+                dt = dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            items.append(
+                Article(
+                    title=title,
+                    published_at=dt,
+                    content=excerpt,
+                    category=category,
+                    source=source_name,
+                    url=link,
+                    uid=uid,
+                )
+            )
+
+    # Filtrage de sécurité (au cas où)
+    return filter_last_7_days(items)

@@ -250,6 +250,10 @@ def summarize_category(category: str, articles: list[Article]) -> CategoryReport
 
     sources = _render_sources(items)
 
+    # UX/perf: option pour désactiver l'appel LLM (utiliser le fallback extractif)
+    if os.environ.get("TECH_WATCH_DISABLE_OLLAMA", "").strip().lower() in {"1", "true", "yes", "y"}:
+        return CategoryReport(category=category, markdown=_extractive_fallback(category, items))
+
     model = os.environ.get("TECH_WATCH_OLLAMA_MODEL", "llama3.1")
 
     prompt = """Tu es un analyste de veille technologique. Tu dois produire une synthèse STRICTEMENT basée sur les sources fournies.

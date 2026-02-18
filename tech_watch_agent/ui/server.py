@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
 
@@ -38,6 +38,7 @@ from agents.filter import (  # noqa: E402
     dedupe_by_url,
     drop_empty_content,
     filter_last_7_days,
+    load_recent_articles,
     persist_new,
     reduce_volume_per_category,
 )
@@ -70,7 +71,7 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
-def run_pipeline_return_payload() -> dict[str, Any]:
+def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
     """Run pipeline et renvoie un payload JSON (stats + articles + chemin md)."""
 
     t0 = time.perf_counter()
@@ -78,35 +79,63 @@ def run_pipeline_return_payload() -> dict[str, Any]:
     os.makedirs(ROOT / "output", exist_ok=True)
     os.makedirs(ROOT / "storage", exist_ok=True)
 
-    # Performance/UX: timeouts stricts (6–10s) + retries max 1 (collector.py)
-    timeout_s = 7
+    mode = (mode or "fast").strip().lower()
+
+    # UX cible 5s: par défaut, on reconstruit depuis SQLite (pas de réseau)
+    if mode not in {"fast", "full"}:
+        mode = "fast"
 
     statuses: list[SourceStatus] = []
-    collected: list[Article] = []
 
-    # Collecte RSS/Atom/HTML fallback (ANSSI/CISA via collector.py)
-    for src in SOURCES:
-        result = collect_from_source_detailed(src, timeout_s=timeout_s)
+    if mode == "full":
+        # Performance/UX: timeouts stricts (6–10s) + retries max 1 (collector.py)
+        timeout_s = 7
+        collected: list[Article] = []
+
+        for src in SOURCES:
+            result = collect_from_source_detailed(src, timeout_s=timeout_s)
+            statuses.append(
+                SourceStatus(
+                    name=src.name,
+                    url=src.url,
+                    ok=bool(result.ok),
+                    items=len(result.articles),
+                    used_fallback_html=bool(result.used_fallback_html),
+                    error=result.error,
+                )
+            )
+            collected.extend(result.articles)
+
+        try:
+            collected.extend(collect_usine_digitale(days=7, per_section_limit=6, timeout_s=timeout_s))
+        except Exception as exc:
+            statuses.append(
+                SourceStatus(
+                    name="Usine Digitale",
+                    url="https://www.usine-digitale.fr",
+                    ok=False,
+                    items=0,
+                    used_fallback_html=True,
+                    error=str(exc),
+                )
+            )
+
+        last_week = filter_last_7_days(collected)
+        # Dédup SQLite inter-run (inchangé)
+        # (on persist après sélection)
+    else:
+        # fast: charge depuis cache SQLite et reconstruit la veille
+        last_week = load_recent_articles(DB_PATH, days=7)
         statuses.append(
             SourceStatus(
-                name=src.name,
-                url=src.url,
-                ok=bool(result.ok),
-                items=len(result.articles),
-                used_fallback_html=bool(result.used_fallback_html),
-                error=result.error,
+                name="Cache SQLite",
+                url="",
+                ok=True,
+                items=len(last_week),
+                used_fallback_html=False,
+                error=None,
             )
         )
-        collected.extend(result.articles)
-
-    # Usine Digitale (HTML) — limiter pour tenir l’objectif 60s
-    try:
-        collected.extend(collect_usine_digitale(days=7, per_section_limit=6, timeout_s=timeout_s))
-    except Exception as exc:
-        statuses.append(SourceStatus(name="Usine Digitale", url="https://www.usine-digitale.fr", ok=False, items=0, used_fallback_html=True, error=str(exc)))
-
-    # Filtrage strict 7 jours AVANT tout le reste
-    last_week = filter_last_7_days(collected)
 
     # Classification + contenu non vide
     classified = classify_all(last_week)
@@ -119,7 +148,12 @@ def run_pipeline_return_payload() -> dict[str, Any]:
     selected = reduce_volume_per_category(after_dedup, per_category_max=15)
 
     # Dédup SQLite inter-run (inchangé)
+    # En mode fast, ça ne change rien mais reste safe.
     persist_new(DB_PATH, selected)
+
+    # UX/perf: mode fast = pas d'appel LLM
+    if mode == "fast":
+        os.environ["TECH_WATCH_DISABLE_OLLAMA"] = "1"
 
     # Génération du markdown (réutilise la fonction de main.py si possible)
     try:
@@ -173,8 +207,8 @@ def index() -> HTMLResponse:
 
 
 @app.post("/api/run")
-def api_run() -> JSONResponse:
-    payload = run_pipeline_return_payload()
+def api_run(mode: str = Query(default="fast", description="fast|full")) -> JSONResponse:
+    payload = run_pipeline_return_payload(mode=mode)
     return JSONResponse(payload)
 
 

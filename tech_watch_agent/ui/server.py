@@ -1,0 +1,189 @@
+"""Mini serveur local pour l’UI (FastAPI).
+
+- Sert index.html sur `/`
+- Expose:
+  - POST /api/run : lance le pipeline existant (réutilise les fonctions)
+  - GET  /api/open : ouvre veille.md (Windows)
+
+Contrainte: ne pas casser le pipeline existant. On réutilise les mêmes fonctions
+(collect/filter/dedupe/reduce/summarize) et on génère output/veille.md.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+
+
+# PYTHONPATH: rendre importable `tech_watch_agent/` et `agents/`
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+TECH_WATCH_ROOT = PROJECT_ROOT / "tech_watch_agent"
+for p in (str(PROJECT_ROOT), str(TECH_WATCH_ROOT)):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+
+from config.sources import CATEGORIES, SOURCES  # noqa: E402
+from agents.collector import Article, collect_from_source_detailed  # noqa: E402
+from agents.collector_usine_digitale import collect_usine_digitale  # noqa: E402
+from agents.filter import (  # noqa: E402
+    dedupe_by_url,
+    drop_empty_content,
+    filter_last_7_days,
+    persist_new,
+    reduce_volume_per_category,
+)
+from agents.classifier import classify_all  # noqa: E402
+from agents.summarizer import summarize_all  # noqa: E402
+
+
+ROOT = TECH_WATCH_ROOT
+INDEX_PATH = ROOT / "ui" / "index.html"
+OUT_MD = ROOT / "output" / "veille.md"
+DB_PATH = str(ROOT / "storage" / "history.db")
+
+
+app = FastAPI(title="Tech Watch UI", version="1.0")
+
+
+@dataclass(frozen=True)
+class SourceStatus:
+    name: str
+    url: str
+    ok: bool
+    items: int
+    used_fallback_html: bool = False
+    error: Optional[str] = None
+
+
+def _iso(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
+def run_pipeline_return_payload() -> dict[str, Any]:
+    """Run pipeline et renvoie un payload JSON (stats + articles + chemin md)."""
+
+    t0 = time.perf_counter()
+
+    os.makedirs(ROOT / "output", exist_ok=True)
+    os.makedirs(ROOT / "storage", exist_ok=True)
+
+    # Performance/UX: timeouts stricts (6–10s) + retries max 1 (collector.py)
+    timeout_s = 7
+
+    statuses: list[SourceStatus] = []
+    collected: list[Article] = []
+
+    # Collecte RSS/Atom/HTML fallback (ANSSI/CISA via collector.py)
+    for src in SOURCES:
+        result = collect_from_source_detailed(src, timeout_s=timeout_s)
+        statuses.append(
+            SourceStatus(
+                name=src.name,
+                url=src.url,
+                ok=bool(result.ok),
+                items=len(result.articles),
+                used_fallback_html=bool(result.used_fallback_html),
+                error=result.error,
+            )
+        )
+        collected.extend(result.articles)
+
+    # Usine Digitale (HTML) — limiter pour tenir l’objectif 60s
+    try:
+        collected.extend(collect_usine_digitale(days=7, per_section_limit=6, timeout_s=timeout_s))
+    except Exception as exc:
+        statuses.append(SourceStatus(name="Usine Digitale", url="https://www.usine-digitale.fr", ok=False, items=0, used_fallback_html=True, error=str(exc)))
+
+    # Filtrage strict 7 jours AVANT tout le reste
+    last_week = filter_last_7_days(collected)
+
+    # Classification + contenu non vide
+    classified = classify_all(last_week)
+    classified = drop_empty_content(classified, min_len=1)
+
+    # Dédup intra-run strictement par URL
+    after_dedup = dedupe_by_url(classified)
+
+    # Réduction volume (max 15/catégorie)
+    selected = reduce_volume_per_category(after_dedup, per_category_max=15)
+
+    # Dédup SQLite inter-run (inchangé)
+    persist_new(DB_PATH, selected)
+
+    # Génération du markdown (réutilise la fonction de main.py si possible)
+    try:
+        import main as main_mod  # type: ignore
+
+        reports = summarize_all(CATEGORIES, selected)
+        md = main_mod.render_markdown([r.markdown for r in reports])
+    except Exception:
+        # Fallback minimal: concat des sections
+        reports = summarize_all(CATEGORIES, selected)
+        md = "\n\n".join([r.markdown for r in reports])
+
+    OUT_MD.write_text(md, encoding="utf-8")
+
+    elapsed = time.perf_counter() - t0
+
+    # Stats
+    sources_ok = sum(1 for s in statuses if s.ok)
+    sources_error = sum(1 for s in statuses if not s.ok)
+
+    payload = {
+        "stats": {
+            "sources_ok": sources_ok,
+            "sources_error": sources_error,
+            "articles_collected_7d": len(last_week),
+            "articles_after_dedup": len(after_dedup),
+            "total_final": len(selected),
+            "elapsed_s": elapsed,
+        },
+        "sources": [asdict(s) for s in statuses],
+        "veille_md_path": str(OUT_MD),
+        "articles": [
+            {
+                "title": a.title,
+                "published_at": _iso(a.published_at),
+                "content": a.content,
+                "category": a.category,
+                "source": a.source,
+                "url": a.url,
+            }
+            for a in sorted(selected, key=lambda x: x.published_at, reverse=True)
+        ],
+    }
+
+    return payload
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    return HTMLResponse(INDEX_PATH.read_text(encoding="utf-8"))
+
+
+@app.post("/api/run")
+def api_run() -> JSONResponse:
+    payload = run_pipeline_return_payload()
+    return JSONResponse(payload)
+
+
+@app.get("/api/open")
+def api_open() -> JSONResponse:
+    if not OUT_MD.exists():
+        return JSONResponse({"ok": False, "error": "veille.md introuvable"}, status_code=404)
+    try:
+        os.startfile(str(OUT_MD))  # Windows
+        return JSONResponse({"ok": True, "path": str(OUT_MD)})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

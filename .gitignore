@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Outputs
+tech_watch_agent/output/
+!tech_watch_agent/output/.gitkeep
+
+# Local DB
+tech_watch_agent/storage/history.db
+
+# OS
+.DS_Store
+Thumbs.db

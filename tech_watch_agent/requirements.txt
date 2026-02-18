@@ -1,0 +1,10 @@
+requests>=2.31
+beautifulsoup4>=4.12
+feedparser>=6.0
+
+# UI (FastAPI)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# Optionnel (UI)
+# streamlit>=1.32

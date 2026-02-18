@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent de veille technologique</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#07080a;
+      --surface:#0d0f12;
+      --border:rgba(255,255,255,0.07);
+      --accent:#e8ff47;
+      --accent2:#ff4d6d;
+      --text:#f0f0f0;
+      --muted:#5a5f6a;
+      --success:#64dc78;
+      --cyber:#ff4d6d;
+      --ia:#e8ff47;
+      --cloud:#4d9fff;
+      --bigdata:#c084fc;
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:"DM Mono", monospace;
+      overflow-x:hidden;
+    }
+
+    /* Subtle grid background */
+    .grid-bg{
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background:
+        linear-gradient(to right, rgba(232,255,71,0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(232,255,71,0.025) 1px, transparent 1px);
+      background-size:48px 48px;
+      opacity:1;
+      z-index:0;
+    }
+
+    .wrap{position:relative; z-index:1; max-width:1120px; margin:0 auto; padding:48px 20px 72px;}
+
+    /* Header */
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border:1px solid var(--accent);
+      color:var(--accent);
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:0.15em;
+      border-radius:2px;
+    }
+    .dot{
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:var(--success);
+      box-shadow:none;
+      animation:pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse{
+      0%{opacity:0.65; transform:scale(1)}
+      50%{opacity:1; transform:scale(1.25)}
+      100%{opacity:0.65; transform:scale(1)}
+    }
+
+    h1{
+      margin:18px 0 10px;
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+      letter-spacing:-0.03em;
+      font-size:60px;
+      line-height:1.02;
+    }
+    .accent{color:var(--accent)}
+
+    .subtitle{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .subtitle::before{content:"// "; color:var(--muted)}
+
+    .divider{
+      margin:28px 0 26px;
+      height:1px;
+      background:var(--border);
+      position:relative;
+    }
+    .divider::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      height:1px;
+      width:80px;
+      background:var(--accent);
+    }
+
+    /* Buttons */
+    .actions{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .btn{
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--text);
+      font-family:"DM Mono", monospace;
+      font-size:12px;
+      padding:12px 14px;
+      cursor:pointer;
+      text-transform:none;
+      letter-spacing:0;
+    }
+    .btn.secondary:hover{
+      border-color:var(--accent);
+      color:var(--accent);
+    }
+    .btn.primary{
+      background:var(--accent);
+      color:#000;
+      border:1px solid transparent;
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+      clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+    }
+    .btn.primary:hover{
+      transform:translateY(-1px);
+      box-shadow:0 10px 30px rgba(232,255,71,0.18);
+    }
+    .btn:disabled{opacity:0.6; cursor:not-allowed}
+
+    .runline{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      color:var(--muted);
+      font-size:12px;
+      margin-top:10px;
+      min-height:18px;
+    }
+    .runline strong{color:var(--text); font-weight:500}
+
+    /* Alerts */
+    .alert{
+      margin-top:16px;
+      padding:12px 14px;
+      border-left:3px solid var(--success);
+      background:rgba(100,220,120,0.07);
+      color:var(--success);
+      font-size:12px;
+      display:none;
+    }
+    .alert.show{display:block}
+    .alert::before{content:"✓ ";}
+
+    /* Stats grid */
+    .stats-grid{
+      margin-top:22px;
+      display:grid;
+      grid-template-columns:repeat(5, 1fr);
+      gap:1px;
+      background:var(--border);
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+      animation-delay:80ms;
+    }
+    .card{
+      background:var(--surface);
+      padding:24px;
+      border:1px solid transparent;
+    }
+    .card .label{
+      color:var(--muted);
+      font-size:9px;
+      text-transform:uppercase;
+      letter-spacing:0.15em;
+      margin-bottom:10px;
+    }
+    .card .value{
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+      font-size:36px;
+      letter-spacing:-0.02em;
+      line-height:1;
+    }
+    .card.total{
+      background:linear-gradient(0deg, rgba(232,255,71,0.06), rgba(232,255,71,0.06)), var(--surface);
+    }
+    .card.total .value{color:var(--accent)}
+
+    /* Tabs */
+    .tabs{
+      margin-top:22px;
+      display:flex;
+      gap:16px;
+      border-bottom:1px solid var(--border);
+      padding-bottom:10px;
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+      animation-delay:140ms;
+    }
+    .tab{
+      background:transparent;
+      border:none;
+      padding:10px 2px;
+      cursor:pointer;
+      color:var(--muted);
+      font-family:"DM Mono", monospace;
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+    }
+    .tab:hover{color:var(--text)}
+    .tab.active{
+      color:var(--text);
+      border-bottom:2px solid var(--accent);
+      margin-bottom:-11px;
+    }
+
+    /* Articles */
+    .section{
+      margin-top:22px;
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+    }
+    .section.delay-1{animation-delay:200ms}
+    .section.delay-2{animation-delay:260ms}
+    .section.delay-3{animation-delay:320ms}
+
+    @keyframes fadeUp{
+      to{opacity:1; transform:translateY(0)}
+    }
+
+    .cat-header{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin:18px 0 10px;
+    }
+    .cat-point{width:8px; height:8px; border-radius:999px;}
+    .cat-title{
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+      font-size:18px;
+      letter-spacing:-0.02em;
+      margin:0;
+    }
+    .cat-count{
+      margin-left:auto;
+      color:var(--muted);
+      font-size:10px;
+    }
+
+    .items{display:grid; gap:10px;}
+    .item{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:14px;
+      padding:14px;
+      background:var(--surface);
+      border:1px solid transparent;
+      text-decoration:none;
+      color:var(--text);
+    }
+    .item:hover{
+      border-color:var(--border);
+      background:rgba(255,255,255,0.02);
+    }
+    .it-title{
+      font-size:13px;
+      line-height:1.25;
+      margin:0 0 6px;
+    }
+    .it-meta{
+      font-size:10px;
+      color:var(--muted);
+    }
+    .it-date{
+      font-size:10px;
+      color:var(--muted);
+      white-space:nowrap;
+      padding-top:3px;
+    }
+
+    .sources-box{
+      margin-top:18px;
+      padding:14px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+      animation-delay:170ms;
+    }
+    .sources-box .label{
+      color:var(--muted);
+      font-size:9px;
+      text-transform:uppercase;
+      letter-spacing:0.15em;
+      margin-bottom:10px;
+    }
+    .sources-list{
+      display:grid;
+      gap:6px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .src-ok{color:var(--text)}
+    .src-err{color:var(--accent2)}
+
+    /* Responsive */
+    @media (max-width: 960px){
+      h1{font-size:44px}
+      .stats-grid{grid-template-columns:repeat(3, 1fr)}
+    }
+    @media (max-width: 620px){
+      h1{font-size:38px}
+      .actions{flex-direction:column; align-items:stretch}
+      .btn{width:100%}
+      .stats-grid{grid-template-columns:repeat(3, 1fr)}
+      .item{grid-template-columns:1fr}
+      .it-date{padding-top:0}
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <main class="wrap">
+    <header>
+      <div class="badge"><span class="dot"></span>Agent actif</div>
+      <h1>Agent de veille <span class="accent">technologique</span></h1>
+      <p class="subtitle">Veille locale (7 jours) — collecte, déduplication, synthèse</p>
+      <div class="divider"></div>
+
+      <div class="actions">
+        <button id="runBtn" class="btn primary">Générer la veille</button>
+        <button id="openBtn" class="btn secondary">Ouvrir veille.md</button>
+      </div>
+      <div class="runline" id="runLine"></div>
+      <div class="alert" id="successAlert">Veille générée et sauvegardée.</div>
+    </header>
+
+    <section class="stats-grid" aria-label="Statistiques">
+      <div class="card"><div class="label">Sources OK</div><div class="value" data-count="sources_ok">0</div></div>
+      <div class="card"><div class="label">Sources en erreur</div><div class="value" data-count="sources_error">0</div></div>
+      <div class="card"><div class="label">Articles collectés (7j)</div><div class="value" data-count="articles_collected_7d">0</div></div>
+      <div class="card"><div class="label">Articles après dédup</div><div class="value" data-count="articles_after_dedup">0</div></div>
+      <div class="card total"><div class="label">Total final</div><div class="value" data-count="total_final">0</div></div>
+    </section>
+
+    <section class="sources-box" id="sourcesBox" aria-label="Détails sources">
+      <div class="label">Sources</div>
+      <div class="sources-list" id="sourcesList">Aucune exécution pour le moment.</div>
+    </section>
+
+    <nav class="tabs" aria-label="Catégories">
+      <button class="tab active" data-tab="Tous">Tous</button>
+      <button class="tab" data-tab="Cybersécurité">Cybersécurité</button>
+      <button class="tab" data-tab="Intelligence Artificielle">IA</button>
+      <button class="tab" data-tab="Cloud / DevOps">Cloud</button>
+      <button class="tab" data-tab="Big Data">Big Data</button>
+    </nav>
+
+    <section class="section delay-1" id="articles"></section>
+  </main>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const runBtn = $('#runBtn');
+    const openBtn = $('#openBtn');
+    const runLine = $('#runLine');
+    const successAlert = $('#successAlert');
+    const sourcesList = $('#sourcesList');
+    const articlesEl = $('#articles');
+
+    let activeTab = 'Tous';
+    let lastPayload = null;
+    let timer = null;
+    let startTs = null;
+
+    const catPointColor = (cat) => {
+      if (cat === 'Cybersécurité') return getComputedStyle(document.documentElement).getPropertyValue('--cyber').trim();
+      if (cat === 'Intelligence Artificielle') return getComputedStyle(document.documentElement).getPropertyValue('--ia').trim();
+      if (cat === 'Cloud / DevOps') return getComputedStyle(document.documentElement).getPropertyValue('--cloud').trim();
+      if (cat === 'Big Data') return getComputedStyle(document.documentElement).getPropertyValue('--bigdata').trim();
+      return getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+    };
+
+    const fmtDate = (iso) => {
+      try {
+        const d = new Date(iso);
+        return d.toISOString().slice(0,10);
+      } catch { return '' }
+    };
+
+    function setRunning(isRunning){
+      runBtn.disabled = isRunning;
+      openBtn.disabled = false;
+      successAlert.classList.remove('show');
+      if(isRunning){
+        startTs = Date.now();
+        runLine.innerHTML = '<strong>running</strong> · 00:00';
+        timer = setInterval(() => {
+          const s = Math.floor((Date.now()-startTs)/1000);
+          const mm = String(Math.floor(s/60)).padStart(2,'0');
+          const ss = String(s%60).padStart(2,'0');
+          runLine.innerHTML = `<strong>running</strong> · ${mm}:${ss}`;
+        }, 250);
+      } else {
+        if(timer) clearInterval(timer);
+        timer = null;
+        startTs = null;
+      }
+    }
+
+    function animateCounts(stats){
+      const els = $$('[data-count]');
+      const duration = 800;
+      els.forEach(el => {
+        const key = el.getAttribute('data-count');
+        const target = Number(stats[key] ?? 0);
+        const start = 0;
+        const t0 = performance.now();
+        const tick = (t) => {
+          const p = Math.min(1, (t - t0) / duration);
+          const val = Math.floor(start + (target - start) * p);
+          el.textContent = String(val);
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+    }
+
+    function renderSources(sources){
+      if(!sources || sources.length===0){
+        sourcesList.textContent = 'Aucune source.';
+        return;
+      }
+      sourcesList.innerHTML = sources.map(s => {
+        const cls = s.ok ? 'src-ok' : 'src-err';
+        const badge = s.used_fallback_html ? ' (fallback HTML)' : '';
+        const extra = s.error ? ` — ${escapeHtml(s.error)}` : '';
+        return `<div class="${cls}">${escapeHtml(s.name)}: ${s.items} item(s)${badge}${extra}</div>`;
+      }).join('');
+    }
+
+    function escapeHtml(str){
+      return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function groupByCategory(articles){
+      const groups = new Map();
+      (articles||[]).forEach(a => {
+        const c = a.category || 'Autre';
+        if(!groups.has(c)) groups.set(c, []);
+        groups.get(c).push(a);
+      });
+      return groups;
+    }
+
+    function catDisplayName(tab){
+      if(tab==='Intelligence Artificielle') return 'Intelligence Artificielle';
+      return tab;
+    }
+
+    function renderArticles(payload){
+      const all = payload?.articles || [];
+      const groups = groupByCategory(all);
+
+      const orderedCats = ['Cybersécurité','Intelligence Artificielle','Cloud / DevOps','Big Data'];
+      const catsToRender = activeTab === 'Tous' ? orderedCats : [catDisplayName(activeTab)];
+
+      const parts = [];
+      catsToRender.forEach(cat => {
+        const items = (groups.get(cat) || []).slice().sort((a,b)=> (b.published_at||'').localeCompare(a.published_at||''));
+        const point = catPointColor(cat);
+        const count = items.length;
+        parts.push(`
+          <div class="cat-header">
+            <span class="cat-point" style="background:${point}"></span>
+            <h3 class="cat-title">${cat === 'Intelligence Artificielle' ? 'Intelligence Artificielle' : cat}</h3>
+            <div class="cat-count">${count} item(s)</div>
+          </div>
+        `);
+
+        if(count===0){
+          parts.push(`<div class="items"><div class="item" style="border-color:var(--border)"><div><p class="it-title">Aucun article sélectionné.</p><div class="it-meta">—</div></div><div class="it-date"></div></div></div>`);
+          return;
+        }
+
+        const list = items.map(a => {
+          const title = escapeHtml(a.title);
+          const source = escapeHtml(a.source);
+          const date = fmtDate(a.published_at);
+          const url = escapeHtml(a.url);
+          return `
+            <a class="item" href="${url}" target="_blank" rel="noreferrer">
+              <div>
+                <p class="it-title">${title}</p>
+                <div class="it-meta">${source}</div>
+              </div>
+              <div class="it-date">${date}</div>
+            </a>
+          `;
+        }).join('');
+
+        parts.push(`<div class="items">${list}</div>`);
+      });
+
+      articlesEl.innerHTML = parts.join('');
+    }
+
+    function setActiveTab(tab){
+      activeTab = tab;
+      $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      if(lastPayload) renderArticles(lastPayload);
+    }
+
+    $$('.tab').forEach(b => b.addEventListener('click', () => setActiveTab(b.dataset.tab)));
+
+    openBtn.addEventListener('click', async () => {
+      try{
+        await fetch('/api/open');
+      } catch(e){
+        // silent
+      }
+    });
+
+    runBtn.addEventListener('click', async () => {
+      setRunning(true);
+      try{
+        const res = await fetch('/api/run', { method: 'POST' });
+        if(!res.ok){
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const payload = await res.json();
+        lastPayload = payload;
+
+        animateCounts(payload.stats || {});
+        renderSources(payload.sources || []);
+        renderArticles(payload);
+
+        const elapsed = payload?.stats?.elapsed_s != null ? ` · ${payload.stats.elapsed_s.toFixed(1)}s` : '';
+        runLine.innerHTML = `<strong>done</strong>${elapsed}`;
+        successAlert.classList.add('show');
+      } catch(e){
+        runLine.innerHTML = `<strong style="color:var(--accent2)">error</strong> · ${escapeHtml(e.message || String(e))}`;
+      } finally {
+        setRunning(false);
+      }
+    });
+
+    // Initial render: zeros
+    animateCounts({});
+    renderArticles({articles: []});
+  </script>
+</body>
+</html>

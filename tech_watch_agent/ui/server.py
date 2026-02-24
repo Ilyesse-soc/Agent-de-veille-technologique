@@ -44,6 +44,7 @@ from agents.filter import (  # noqa: E402
 )
 from agents.classifier import classify_all  # noqa: E402
 from agents.summarizer import summarize_all  # noqa: E402
+from agents.qa import answer_question  # noqa: E402
 
 
 ROOT = TECH_WATCH_ROOT
@@ -220,6 +221,19 @@ def api_open() -> JSONResponse:
     try:
         os.startfile(str(OUT_MD))  # Windows
         return JSONResponse({"ok": True})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+
+@app.post("/api/ask")
+def api_ask(body: dict[str, Any]) -> JSONResponse:
+    question = str((body or {}).get("question") or "").strip()
+    if not question:
+        return JSONResponse({"ok": False, "error": "Question vide"}, status_code=400)
+
+    try:
+        payload = answer_question(DB_PATH, question=question, max_sources=8)
+        return JSONResponse(payload)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 

@@ -41,6 +41,18 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _cutoff_start_of_day_utc(days: int) -> datetime:
+    """Cutoff inclusif basé sur le jour (pas l'heure).
+
+    Exemple: si on est lundi (peu importe l'heure), `days=7` inclut tout le lundi
+    précédent + aujourd'hui.
+    """
+
+    now = _utc_now().astimezone(timezone.utc)
+    start_date = (now.date() - timedelta(days=days))
+    return datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+
+
 def init_db(db_path: str) -> None:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     with sqlite3.connect(db_path) as conn:
@@ -55,7 +67,7 @@ def _iso(dt: datetime) -> str:
 
 
 def filter_last_7_days(articles: list[Article]) -> list[Article]:
-    cutoff = _utc_now() - timedelta(days=7)
+    cutoff = _cutoff_start_of_day_utc(days=7)
     kept = [a for a in articles if a.published_at >= cutoff]
     logger.info("Filtre 7 jours: %d -> %d", len(articles), len(kept))
     return kept
@@ -187,7 +199,7 @@ def load_recent_articles(db_path: str, days: int = 7) -> list[Article]:
     """
 
     init_db(db_path)
-    cutoff = _utc_now() - timedelta(days=days)
+    cutoff = _cutoff_start_of_day_utc(days=days)
     cutoff_iso = _iso(cutoff)
 
     items: list[Article] = []

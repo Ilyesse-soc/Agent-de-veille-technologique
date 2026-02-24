@@ -396,6 +396,67 @@
     .src-ok{color:var(--text)}
     .src-err{color:var(--accent2)}
 
+    .qa-box{
+      margin-top:12px;
+      padding:14px;
+      background:var(--surface);
+      border:1px solid var(--border);
+      animation:fadeUp 520ms ease forwards;
+      opacity:0;
+      transform:translateY(16px);
+      animation-delay:175ms;
+    }
+    .qa-top{
+      display:flex;
+      align-items:baseline;
+      gap:12px;
+      margin-bottom:10px;
+      flex-wrap:wrap;
+    }
+    .qa-box .label{
+      color:var(--muted);
+      font-size:9px;
+      text-transform:uppercase;
+      letter-spacing:0.15em;
+    }
+    .qa-hint{
+      color:var(--muted);
+      font-size:11px;
+    }
+    .qa-row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .qa-input{
+      flex:1;
+      min-width:260px;
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--text);
+      font-family:"DM Mono", monospace;
+      font-size:12px;
+      padding:12px 12px;
+      outline:none;
+    }
+    .qa-input:focus{border-color:var(--accent)}
+    .qa-out{
+      margin-top:10px;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,0.02);
+      padding:12px;
+      color:var(--text);
+      font-size:12px;
+      line-height:1.4;
+      white-space:normal;
+    }
+    .qa-out .muted{color:var(--muted)}
+    .qa-sources{margin-top:10px; display:grid; gap:6px;}
+    .qa-src{font-size:11px; color:var(--muted)}
+    .qa-src a{color:var(--text); text-decoration:none}
+    .qa-src a:hover{color:var(--accent)}
+
     /* Responsive */
     @media (max-width: 960px){
       h1{font-size:44px}
@@ -441,6 +502,18 @@
       <div class="sources-list" id="sourcesList">Aucune exécution pour le moment.</div>
     </section>
 
+    <section class="qa-box" aria-label="Assistant IA">
+      <div class="qa-top">
+        <div class="label">Assistant IA</div>
+        <div class="qa-hint">Pose une question sur l’historique des veilles. Réponse en français et sourcée.</div>
+      </div>
+      <div class="qa-row">
+        <input id="qaInput" class="qa-input" placeholder="Ex: Quelles sont les vulnérabilités/CVE importantes récemment ?" />
+        <button id="qaBtn" class="btn secondary">Demander</button>
+      </div>
+      <div id="qaOut" class="qa-out"><span class="muted">Aucune question pour le moment.</span></div>
+    </section>
+
     <nav class="tabs" aria-label="Catégories">
       <button class="tab active" data-tab="Tous">Tous</button>
       <button class="tab" data-tab="Cybersécurité">Cybersécurité</button>
@@ -462,6 +535,9 @@
     const successAlert = $('#successAlert');
     const sourcesList = $('#sourcesList');
     const articlesEl = $('#articles');
+    const qaInput = $('#qaInput');
+    const qaBtn = $('#qaBtn');
+    const qaOut = $('#qaOut');
 
     let activeTab = 'Tous';
     let lastPayload = null;
@@ -536,6 +612,48 @@
 
     function escapeHtml(str){
       return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    function renderQAAnswer(payload){
+      if(!payload || !payload.ok){
+        qaOut.innerHTML = `<span class="muted">${escapeHtml(payload?.error || 'Erreur')}</span>`;
+        return;
+      }
+      const answer = escapeHtml(payload.answer || '').replace(/\n/g,'<br>');
+      const sources = payload.sources || [];
+      const srcHtml = sources.length ? `
+        <div class="qa-sources">
+          ${sources.map(s => {
+            const date = (s.published_at || '').slice(0,10);
+            const title = escapeHtml(s.title || '');
+            const url = escapeHtml(s.url || '#');
+            const meta = escapeHtml(`${s.source || ''}${date ? ' · '+date : ''}`);
+            return `<div class="qa-src">[${s.idx}] <a href="${url}" target="_blank" rel="noreferrer">${title}</a> <span class="muted">— ${meta}</span></div>`;
+          }).join('')}
+        </div>
+      ` : '';
+
+      qaOut.innerHTML = `${answer}${srcHtml}`;
+    }
+
+    async function askQuestion(){
+      const q = (qaInput?.value || '').trim();
+      if(!q) return;
+      qaBtn.disabled = true;
+      qaOut.innerHTML = '<span class="muted">Analyse en cours…</span>';
+      try{
+        const res = await fetch('/api/ask', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({question: q})
+        });
+        const payload = await res.json().catch(() => ({ok:false, error:`HTTP ${res.status}`}));
+        renderQAAnswer(payload);
+      } catch(e){
+        renderQAAnswer({ok:false, error: e.message || String(e)});
+      } finally {
+        qaBtn.disabled = false;
+      }
     }
 
     function groupByCategory(articles){
@@ -734,6 +852,11 @@
         // Fallback sans dépendance: impression (l’utilisateur choisit « Enregistrer en PDF »)
         try { window.print(); } catch { /* silent */ }
       }
+    });
+
+    qaBtn.addEventListener('click', askQuestion);
+    qaInput.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter') askQuestion();
     });
 
     runBtn.addEventListener('click', async () => {

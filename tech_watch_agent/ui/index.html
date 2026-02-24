@@ -423,6 +423,32 @@
       color:var(--muted);
       font-size:11px;
     }
+    .qa-scope{
+      margin-left:auto;
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .qa-pill{
+      border:1px solid var(--border);
+      background:transparent;
+      color:var(--muted);
+      font-family:"DM Mono", monospace;
+      font-size:10px;
+      padding:8px 10px;
+      cursor:pointer;
+      text-transform:uppercase;
+      letter-spacing:0.06em;
+    }
+    .qa-pill:hover{color:var(--text); border-color:var(--accent)}
+    .qa-pill.active{
+      color:#000;
+      background:var(--accent);
+      border-color:transparent;
+      font-family:"Syne", sans-serif;
+      font-weight:800;
+    }
     .qa-row{
       display:flex;
       gap:10px;
@@ -506,6 +532,10 @@
       <div class="qa-top">
         <div class="label">Assistant IA</div>
         <div class="qa-hint">Pose une question sur l’historique des veilles. Réponse en français et sourcée.</div>
+        <div class="qa-scope" aria-label="Période">
+          <button id="qaScope7" class="qa-pill active" type="button" data-days="7">7 jours</button>
+          <button id="qaScopeAll" class="qa-pill" type="button" data-days="0">Tout</button>
+        </div>
       </div>
       <div class="qa-row">
         <input id="qaInput" class="qa-input" placeholder="Ex: Quelles sont les vulnérabilités/CVE importantes récemment ?" />
@@ -538,11 +568,14 @@
     const qaInput = $('#qaInput');
     const qaBtn = $('#qaBtn');
     const qaOut = $('#qaOut');
+    const qaScope7 = $('#qaScope7');
+    const qaScopeAll = $('#qaScopeAll');
 
     let activeTab = 'Tous';
     let lastPayload = null;
     let timer = null;
     let startTs = null;
+    let qaDays = 7; // 7 jours par défaut (calendaire)
 
     const catPointColor = (cat) => {
       if (cat === 'Cybersécurité') return getComputedStyle(document.documentElement).getPropertyValue('--cyber').trim();
@@ -645,7 +678,7 @@
         const res = await fetch('/api/ask', {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({question: q})
+          body: JSON.stringify({question: q, days: qaDays})
         });
         const payload = await res.json().catch(() => ({ok:false, error:`HTTP ${res.status}`}));
         renderQAAnswer(payload);
@@ -654,6 +687,13 @@
       } finally {
         qaBtn.disabled = false;
       }
+    }
+
+    function setQAScope(days){
+      const d = Number(days);
+      qaDays = Number.isFinite(d) ? d : 7;
+      qaScope7.classList.toggle('active', qaDays === 7);
+      qaScopeAll.classList.toggle('active', qaDays === 0);
     }
 
     function groupByCategory(articles){
@@ -858,6 +898,9 @@
     qaInput.addEventListener('keydown', (ev) => {
       if(ev.key === 'Enter') askQuestion();
     });
+
+    qaScope7.addEventListener('click', () => setQAScope(7));
+    qaScopeAll.addEventListener('click', () => setQAScope(0));
 
     runBtn.addEventListener('click', async () => {
       setRunning(true);

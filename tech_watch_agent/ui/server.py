@@ -231,8 +231,17 @@ def api_ask(body: dict[str, Any]) -> JSONResponse:
     if not question:
         return JSONResponse({"ok": False, "error": "Question vide"}, status_code=400)
 
+    days: Optional[int] = None
+    raw_days = (body or {}).get("days")
+    if raw_days is not None:
+        try:
+            d = int(raw_days)
+            days = d if d > 0 else None
+        except Exception:
+            days = None
+
     try:
-        payload = answer_question(DB_PATH, question=question, max_sources=8)
+        payload = answer_question(DB_PATH, question=question, max_sources=8, days=days)
         return JSONResponse(payload)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

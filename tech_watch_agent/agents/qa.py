@@ -13,7 +13,7 @@ import os
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 import requests
@@ -31,6 +31,12 @@ class QAArticle:
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _cutoff_start_of_day_utc(days: int) -> datetime:
+    now = _utc_now().astimezone(timezone.utc)
+    start_date = (now.date() - timedelta(days=int(days)))
+    return datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
 
 
 def _shorten(text: str, max_len: int = 380) -> str:
@@ -172,7 +178,7 @@ def _parse_iso(dt: str) -> datetime | None:
         return None
 
 
-def load_articles_for_qa(db_path: str, limit: int = 3000) -> list[QAArticle]:
+def load_articles_for_qa(db_path: str, limit: int = 3000, days: int | None = None) -> list[QAArticle]:
     """Charge un historique d’articles (par défaut les plus récents).
 
     On limite pour éviter des réponses lentes si l’historique grossit beaucoup.
@@ -180,15 +186,28 @@ def load_articles_for_qa(db_path: str, limit: int = 3000) -> list[QAArticle]:
 
     items: list[QAArticle] = []
     with sqlite3.connect(db_path) as conn:
-        cur = conn.execute(
-            """
-            SELECT title, excerpt, source_name, category, published_at, link
-            FROM articles
-            ORDER BY published_at DESC
-            LIMIT ?
-            """,
-            (int(limit),),
-        )
+        if days is not None and int(days) > 0:
+            cutoff_iso = _cutoff_start_of_day_utc(int(days)).isoformat()
+            cur = conn.execute(
+                """
+                SELECT title, excerpt, source_name, category, published_at, link
+                FROM articles
+                WHERE published_at >= ?
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (cutoff_iso, int(limit)),
+            )
+        else:
+            cur = conn.execute(
+                """
+                SELECT title, excerpt, source_name, category, published_at, link
+                FROM articles
+                ORDER BY published_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            )
         for title, excerpt, source_name, category, published_at, link in cur.fetchall():
             dt = _parse_iso(published_at)
             if not dt:
@@ -239,8 +258,8 @@ def _ollama_generate(prompt: str, model: str, timeout_s: int = 25) -> str:
     return (data.get("response") or "").strip()
 
 
-def answer_question(db_path: str, question: str, max_sources: int = 8) -> dict:
-    articles = load_articles_for_qa(db_path)
+def answer_question(db_path: str, question: str, max_sources: int = 8, days: int | None = None) -> dict:
+    articles = load_articles_for_qa(db_path, days=days)
     picked = retrieve(question, articles, k=max_sources)
 
     sources = []

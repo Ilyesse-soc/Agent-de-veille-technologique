@@ -87,6 +87,7 @@ def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
         mode = "fast"
 
     statuses: list[SourceStatus] = []
+    cache_loaded_7d: Optional[int] = None
 
     if mode == "full":
         # Performance/UX: timeouts stricts (6–10s) + retries max 1 (collector.py)
@@ -127,12 +128,13 @@ def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
     else:
         # fast: charge depuis cache SQLite et reconstruit la veille
         last_week = load_recent_articles(DB_PATH, days=7)
+        cache_loaded_7d = len(last_week)
         statuses.append(
             SourceStatus(
                 name="Cache SQLite",
                 url="",
                 ok=True,
-                items=len(last_week),
+                items=0,
                 used_fallback_html=False,
                 error=None,
             )
@@ -147,6 +149,17 @@ def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
 
     # Réduction volume (max 15/catégorie)
     selected = reduce_volume_per_category(after_dedup, per_category_max=15)
+
+    # En mode fast, on affiche le nombre réellement retenu (pas le brut chargé du cache)
+    if mode == "fast" and statuses and statuses[0].name == "Cache SQLite":
+        statuses[0] = SourceStatus(
+            name="Cache SQLite",
+            url="",
+            ok=True,
+            items=len(selected),
+            used_fallback_html=False,
+            error=None,
+        )
 
     # Dédup SQLite inter-run (inchangé)
     # En mode fast, ça ne change rien mais reste safe.
@@ -179,10 +192,13 @@ def run_pipeline_return_payload(mode: str = "fast") -> dict[str, Any]:
         "stats": {
             "sources_ok": sources_ok,
             "sources_error": sources_error,
-            "articles_collected_7d": len(last_week),
+            # En mode fast, 'collectés' est trompeur: on expose le retenu (cohérent UX)
+            "articles_collected_7d": len(selected) if mode == "fast" else len(last_week),
             "articles_after_dedup": len(after_dedup),
             "total_final": len(selected),
             "elapsed_s": elapsed,
+            # Debug/diagnostic: non affiché par l'UI (mais utile)
+            "cache_loaded_7d": cache_loaded_7d,
         },
         "sources": [asdict(s) for s in statuses],
         # Ne pas exposer de chemin local (OPSEC). On garde un identifiant neutre.

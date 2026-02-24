@@ -149,6 +149,29 @@ _STOPWORDS = {
 }
 
 
+def _looks_like_academic(a: QAArticle) -> bool:
+    hay = f"{a.source} {a.title} {a.url}".lower()
+    return "arxiv" in hay or "doi" in hay or "openreview" in hay
+
+
+def _detect_category_preference(question: str) -> str | None:
+    q = (question or "").lower()
+    if any(k in q for k in ["cyber", "cybersécurité", "cybersecurite", "cve", "vuln", "ransom", "malware", "phishing"]):
+        return "Cybersécurité"
+    if any(k in q for k in ["big data", "kafka", "spark", "lakehouse", "etl", "elt", "warehouse"]):
+        return "Big Data"
+    if any(k in q for k in ["ia", "intelligence artificielle", "llm", "rag", "fine-tuning", "benchmark", "modèle"]):
+        return "Intelligence Artificielle"
+    if any(k in q for k in ["cloud", "devops", "kubernetes", "terraform", "ci/cd", "aws", "azure", "gcp"]):
+        return "Cloud / DevOps"
+    return None
+
+
+def _wants_news(question: str) -> bool:
+    q = (question or "").lower()
+    return bool(re.search(r"\b(nouvelle|news|actu|actualité|actualite|info)\b", q))
+
+
 def _tokenize(text: str) -> list[str]:
     words = (
         (text or "")
@@ -230,6 +253,9 @@ def retrieve(question: str, articles: list[QAArticle], k: int = 8) -> list[QAArt
     if not q_tokens:
         return articles[:k]
 
+    pref_cat = _detect_category_preference(question)
+    wants_news = _wants_news(question)
+
     def score(a: QAArticle) -> float:
         text = f"{a.title} {a.excerpt} {a.source} {a.category}"
         a_tokens = _tokenize(text)
@@ -241,7 +267,9 @@ def retrieve(question: str, articles: list[QAArticle], k: int = 8) -> list[QAArt
         # léger boost récence
         age_days = max(0.0, (_utc_now() - a.published_at).total_seconds() / 86400.0)
         recency = max(0.0, 120.0 - age_days) / 120.0  # 0..1 sur ~4 mois
-        return overlap + cve_boost + recency * 0.5
+        cat_boost = 1.5 if (pref_cat and a.category == pref_cat) else 0.0
+        academic_penalty = 2.0 if (wants_news and _looks_like_academic(a)) else 0.0
+        return overlap + cve_boost + recency * 0.5 + cat_boost - academic_penalty
 
     ranked = sorted(articles, key=score, reverse=True)
     # filtre les scores nuls si possible
@@ -260,6 +288,42 @@ def _ollama_generate(prompt: str, model: str, timeout_s: int = 25) -> str:
 
 def answer_question(db_path: str, question: str, max_sources: int = 8, days: int | None = None) -> dict:
     articles = load_articles_for_qa(db_path, days=days)
+
+    pref_cat = _detect_category_preference(question)
+    wants_news = _wants_news(question)
+
+    # Cas UX: "donne-moi une nouvelle en cyber" -> 1 actu récente, plutôt non-académique.
+    if wants_news:
+        candidates = articles
+        if pref_cat:
+            candidates = [a for a in candidates if a.category == pref_cat]
+
+        non_academic = [a for a in candidates if not _looks_like_academic(a)]
+        if non_academic:
+            candidates = non_academic
+
+        if candidates:
+            best = sorted(candidates, key=lambda a: a.published_at, reverse=True)[0]
+            sources = [
+                {
+                    "idx": 1,
+                    "title": best.title,
+                    "url": best.url,
+                    "source": best.source,
+                    "category": best.category,
+                    "published_at": best.published_at.isoformat(),
+                    "excerpt": _shorten(best.excerpt, 360),
+                }
+            ]
+            date_str = best.published_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
+            answer = (
+                f"Nouvelle récente ({date_str}) — {best.source}:\n"
+                f"- {best.title} [1]\n"
+                f"{_shorten(best.excerpt, 420)}\n"
+                f"Lien: {best.url}"
+            )
+            return {"ok": True, "answer": answer, "sources": sources}
+
     picked = retrieve(question, articles, k=max_sources)
 
     sources = []
